@@ -1,0 +1,9 @@
+extern mod foo;
+
+mod main;
+/*
+fn main() {
+  foo::shut_up("FOO");
+}
+
+*/

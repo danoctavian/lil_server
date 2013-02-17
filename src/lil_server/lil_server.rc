@@ -14,5 +14,7 @@
 #[allow(non_implicitly_copyable_typarams)];
 
 pub mod shut_up_foo;
+pub mod server;
 
 pub use shut_up_foo::*;
+pub use server::*;

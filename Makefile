@@ -6,6 +6,11 @@ all: lil_server bin/main
 run: bin/main
 	export RUST_LOG=main=4,lil_server=4 && ./bin/main
 
+.PHONY: clean
+clean: 
+	rm ./bin/*
+
+
 .PHONY : lil_server 
 
 lil_server:

@@ -4,3 +4,6 @@ To build everything run
   make
 To run the main 
   make run
+lil_server
+
+n/a

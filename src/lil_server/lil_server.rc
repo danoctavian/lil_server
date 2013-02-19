@@ -18,3 +18,6 @@ pub mod server;
 
 pub use shut_up_foo::*;
 pub use server::*;
+
+extern mod std;
+extern mod socket (name = "socket", vers = "0.1");

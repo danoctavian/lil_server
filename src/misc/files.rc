@@ -1,0 +1,9 @@
+extern mod std;
+use std::*;
+
+fn main() {
+  match io::read_whole_file_str(~path::Path(~"testfile")) {
+    Ok(s) => {io::println(s);}
+    Err(s) => {io::println(s);}
+  }
+}

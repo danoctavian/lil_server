@@ -13,11 +13,12 @@
 //#[allow(deprecated_mode)];
 #[allow(non_implicitly_copyable_typarams)];
 
-pub mod shut_up_foo;
 pub mod server;
+pub mod config;
 
-pub use shut_up_foo::*;
 pub use server::*;
+pub use config::*;
+
 
 extern mod std;
-extern mod socket (name = "socket", vers = "0.1");
+

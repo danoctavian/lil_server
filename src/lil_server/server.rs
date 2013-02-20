@@ -1,87 +1,113 @@
 use std::*;
+use core::vec::*;
+use core::result::*;
+use core::str::*;
 
-pub fn start() {
-  info!("started lil_server");
-//  debug!(fmt!("a const %d", 1));
-  io::println(fmt!("a const %d", sort::MIN_GALLOP as int));
-  let taskBuilder : task::TaskBuilder = task::task(); 
-  //let ioTask : uv_iotask::IoTask = uv_iotask::spawn_iotask(taskBuilder);
-
+pub fn start(config: &Config) {
+  info!("started lil_server instance");
+  let config_cpy = copy *config;
   do task::spawn {
-    debug!("started solving task");    
-  }
-  let (port, chan) : (pipes::Port<net_tcp::TcpNewConnection>,
-                    pipes::Chan<net_tcp::TcpNewConnection>) = pipes::stream();
-  let (bport, bchan) : (pipes::Port<int>, pipes::Chan<int>) = pipes::stream();
-
-   task::spawn_sched(task::ManualThreads(1u), || {
-      debug!("connection handler started");
-      let newConn = port.recv();
-      debug!("handling new conn");
-
-      let mut acceptRes = net_tcp::accept(newConn);
-      match acceptRes {
-        result::Ok(tcpSocket) => {
- //         let socketBuf = net_tcp::socket_buf(tcpSocket);
-          debug!("accepted connection");
-          let bytes = tcpSocket.read(1u);
-          debug!("read byte");
-          
-          bchan.send(1);
-//          socketBuf.write(str::to_bytes("die mothafucka"));
-          debug!("wrote to socket");
-        }
-        result::Err(_) => error!("failed to accept socket connection")
-      };
-      debug!("accepted connection");
-
-    });
-
-
-  do task::spawn {
-
-    let ipAddr = net_ip::v4::parse_addr(~"127.0.0.1");
-    let ioTask =  uv::global_loop::get();
-    let servPort = 6969;
-    debug!("started ioTask");
-
-    net_tcp::listen(ipAddr, servPort, 128, ioTask,
+    let ip_addr = net_ip::v4::parse_addr(config_cpy.host);
+    let iotask =  uv::global_loop::get();
+    let port = 6969;
+    net_tcp::listen(ip_addr, port, 128, iotask,
                    on_establish_cb,
-                   |newConn, kill_chan| {
-                     debug!("new conn");
+    |new_conn, kill_chan| {
+      debug!("new connection arrived");
+      let (accept_port, accept_chan) = pipes::stream();
+      // is spawning a task here potentially dangerous? 
+      do task::spawn_sched(task::ManualThreads(2)) || {
+        debug!("spawned request handler");
+        match net::tcp::accept(new_conn) {
+          Ok(socket) => {
+            debug!("accepted succesfully");
+            accept_chan.send(());
+            handle_request(&config_cpy, &socket);
+          } 
+          Err(err_data) => {
+             accept_chan.send(());
+             error!("failed to accept connection");
+          } 
+        };
+      };
+      // wait for socket to be accepted
+      accept_port.recv();
+    });
+    }                  
+    do task::spawn || {
+      debug!("some other random task");
+    }
+}
 
-                     chan.send(newConn);
+fn handle_request(conf : &Config, socket : &net::tcp::TcpSocket) {
+  debug!("in handle request func");
+  let mut response = str::to_bytes("404 not found");
+  match socket.read(0u) {
+    Ok(req_bytes) => {
+      let req_text = str::from_bytes(req_bytes);
+      debug!("received req");
+      //io::println(req_text);
+      match get_request_content(req_text) {
+        Ok(req) => {
+          response = str::to_bytes("your req was correct");
+          match get_static_file(copy conf.files_root, req.file_name)  {
+            Ok(content) => {response = content;}
+            Err(err_data) => { debug!("could not read file");}
+          }
+        }
+        Err(err_data) => {
+          debug!("request does not have the correct format");
+         }
+//          response = str::to_bytes("your req was correct");
+        }
+    }
+    Err(crap) => {
+      debug!("read failed");
+    }
+  };
+  socket.write(response);
+}
 
-      //               bport.recv();
-                       /*
-                     task::spawn_sched (task::ManualThreads(1u), || {
-                       debug!("this is the spawned task running");
-                       let tcpSocket = result::unwrap(acceptRes);
+struct Request {
+  file_name: ~str
+}
 
-                       let res = tcpSocket.read_start();
-                       */
+fn get_static_file(root_str : ~str, file_name : &str)
+                  -> Result<~[u8], ~str> {
+  debug!("getting a static file");
+  io::println(file_name);
+  let root_str2 = copy root_str;
+  debug!("got root str");
+  let path_str = str::append(root_str, file_name);
+  debug!("got path string");
+  let full_path = //path::Path(~"wtf");
+   path::Path(path_str);
+//  path::Path(str::append(~"wtf", ~"loLawgawg"));
+  io::println(full_path.to_str());
+  debug!("computed full path");
 
-/*
-                       let mut acceptRes = net_tcp::accept(newConn);
-                       match acceptRes {
-                         result::Ok(tcpSocket) => {
-                           let socketBuf = net_tcp::socket_buf(tcpSocket);
-                           debug!("accepted connection");
-                           socketBuf.read_byte();
-                           debug!("read byte");
-                           socketBuf.write(str::to_bytes("die mothafucka"));
-                           debug!("wrote to socket");
-                         }
-                         result::Err(_) => error!("failed to accept socket connection")
-                       };
- 
-                     });
+  if (is_valid_path(file_name)) {
+    debug!("valid path");
 
-                       */
-                   } 
-                );
-  }
-                   
+    match io::read_whole_file
+            (~full_path)  {
+       Ok(content) => Ok(content),
+       Err(err_data) => Err(~"wrong file")
+    }
+  } else { Err(~"wrong file")}
+}
+
+/* checks if it contains sneaky tricks */
+fn is_valid_path(path : &str) -> bool {
+  !contains(path, ~"..")
+}
+
+fn get_request_content(req_text : &str) -> Result<~Request, ~str>   {
+  let words = str::words(req_text);
+  if (vec::len(words) >= 2 && to_lower(words[0]) == ~"get") {
+    debug!("RUST MY ASS ");
+    Ok(~Request{file_name:copy words[1]})
+  } else { Err(~"wrong request format") } 
 }
 
 fn on_establish_cb(chan : oldcomm::Chan<Option<net_tcp::TcpErrData>>) {
@@ -92,40 +118,6 @@ fn on_establish_cb(chan : oldcomm::Chan<Option<net_tcp::TcpErrData>>) {
 }
 
 fn new_connect_cb(newConn : net_tcp::TcpNewConnection,
-                  kill_chan : oldcomm::Chan<Option<net_tcp::TcpErrData>>)
-                   {
-//  return result::Ok(());
-  io::println("new connection arrived");
-  debug!("connect cb");
-//  let cont_po = oldcomm::Port<option::Option<net_tcp::TcpErrData>>();
-/*
-  let cont_po = oldcomm::Port();
-  let cont_ch = oldcomm::Chan(cont_po);
-*/
-     /*
-    let mut acceptRes = net_tcp::accept(newConn);
-    match acceptRes {
-      result::Ok(tcpSocket) => {
-
-        let socketBuf = net_tcp::socket_buf(tcpSocket);
-        debug!("accepted connection");
-        //socketBuf.write(str::to_bytes("die mothafucka"));
-        socketBuf.read_byte();
-        debug!("wrote to socket");
-        debug!("got result of writing");
-      }
-      result::Err(_) => error!("failed to accept socket connection")
-    };
-    */
-    //oldcomm::send(cont_ch, true);
-  debug!("spawned a task");
- // oldcomm::recv(cont_po);
-/*
-  match oldcomm::recv(cont_po) {
-    // shut down listen()
-    some(err_data) => { oldcomm::send(kill_chan, some(err_data)) }
-    // wait for next connection
-    none => {}
-  }
-*/
+              kill_chan : oldcomm::Chan<Option<net_tcp::TcpErrData>>) {
 }
+

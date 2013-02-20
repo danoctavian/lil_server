@@ -1,4 +1,5 @@
 extern mod lil_server;
+extern mod std;
 
 mod main;
 

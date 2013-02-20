@@ -54,7 +54,7 @@ fn test_some_tcp_stream (
                 // Incoming connection. Send it to the receiver task to accept
                 let (res_port, res_chan) = pipes::stream();
 //                accept_chan.send((new_conn, res_chan));
-               task::spawn_sched(task::ManualThreads(1u), || {
+                 task::spawn_sched(task::ManualThreads(1u), || {
                  io::println("spawned task");
                  let accept_result = tcp::accept(new_conn);
                  io::println("accepted");

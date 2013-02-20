@@ -29,21 +29,21 @@ fn test_some_tcp_stream (
         let (begin_connect_port, begin_connect_chan) = pipes::stream();
         // The connection is sent from the server task to the receiver task
         // to handle the connection
-        let (accept_port, accept_chan) = pipes::stream();
+        //let (accept_port, accept_chan) = pipes::stream();
         // The main task will wait until the test is over to proceed
-        let (finish_port, finish_chan) = pipes::stream();
+//        let (finish_port, finish_chan) = pipes::stream();
 
         let addr0 = ip::v4::parse_addr("127.0.0.1");
 
         let begin_connect_chan = Cell(begin_connect_chan);
-        let accept_chan = Cell(accept_chan);
+        //let accept_chan = Cell(accept_chan);
 
         // The server task
         let addr = copy addr0;
         do task::spawn || {
             let iotask = &uv::global_loop::get();
             let begin_connect_chan = begin_connect_chan.take();
-            let accept_chan = accept_chan.take();
+            //let accept_chan = accept_chan.take();
             let listen_res = do tcp::listen(
                 copy addr, port, 128, *iotask, |_kill_ch| {
                     // Tell the sender to initiate the connection
@@ -53,12 +53,26 @@ fn test_some_tcp_stream (
 
                 // Incoming connection. Send it to the receiver task to accept
                 let (res_port, res_chan) = pipes::stream();
-                accept_chan.send((new_conn, res_chan));
+//                accept_chan.send((new_conn, res_chan));
+               task::spawn_sched(task::ManualThreads(1u), || {
+                 io::println("spawned task");
+                 let accept_result = tcp::accept(new_conn);
+                 io::println("accepted");
+                 assert accept_result.is_ok();
+                 let sock = result::unwrap(accept_result);
+                 res_chan.send(());
+                 
+                 let rd = sock.read(0u);
+                 io::println(str::from_bytes(result::unwrap(rd)));
+                 sock.write(str::to_bytes("my resp 3333333333333333333333333333333333333333333333333333333"));
+                 //finish_chan.send(());
+
+               });
                // Wait until the connection is accepted
                 res_port.recv();
 
                 // Stop listening
-//                kill_ch.send(None)
+               // kill_ch.send(None)
             };
 
             assert listen_res.is_ok();
@@ -92,6 +106,7 @@ fn test_some_tcp_stream (
         }
         }
         // Reciever task
+/*
         do task::spawn || {
             // Wait for a connection
             let (conn, res_chan) = accept_port.recv();
@@ -106,20 +121,17 @@ fn test_some_tcp_stream (
             let rd = sock.read(0u);
             io::println(str::from_bytes(result::unwrap(rd)));
 //            let socket_buf: tcp::TcpSocketBuf = tcp::socket_buf(sock);
-
             // TcpSocketBuf is a Reader!
 //            let port = reader_port(socket_buf);
-/*
             for int::range(0, 10) |i| {
                 let j = port.recv();
                 io::println("receieved %?", j);
                 assert i == j;
             }
-*/
             // The test is over!
-            finish_chan.send(());
         }
-
-        finish_port.recv();
+}
+*/
+//        finish_port.recv();
     }
 

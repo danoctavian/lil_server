@@ -6,19 +6,19 @@
 #[license = "WTFPL"];
 
 // i don't know what all this shit means 
-#[forbid(unused_imports)];
+//#[forbid(unused_imports)];
 #[forbid(implicit_copies)];
 #[forbid(deprecated_pattern)];
-#[allow(structural_records)];
+//#[allow(structural_records)];
 //#[allow(deprecated_mode)];
 #[allow(non_implicitly_copyable_typarams)];
 
-pub mod server;
-pub mod config;
-
-pub use server::*;
-pub use config::*;
-
-
 extern mod std;
+extern mod extra;
+
+pub use config::*;
+pub use server::*;
+
+pub mod config;
+pub mod server;
 

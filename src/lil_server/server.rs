@@ -1,64 +1,69 @@
+use config::*;
+use extra::{net, uv, uv_global_loop};
 use std::*;
-use core::vec::*;
-use core::result::*;
-use core::str::*;
+use std::option::*;
+use std::to_bytes::ToBytes;
 
 pub fn start(config: &Config) {
-  info!("started lil_server instance");
-  let config_cpy = copy *config;
-  do task::spawn {
-    let ip_addr = net_ip::v4::parse_addr(config_cpy.host);
-    let iotask =  uv::global_loop::get();
-    let port = 6969;
-    net_tcp::listen(ip_addr, port, 128, iotask,
-                   on_establish_cb,
-    |new_conn, kill_chan| {
-      debug!("new connection arrived");
-      let (accept_port, accept_chan) = pipes::stream();
-      // is spawning a task here potentially dangerous? 
-      do task::spawn_sched(task::ManualThreads(2)) || {
-        debug!("spawned request handler");
-        match net::tcp::accept(new_conn) {
-          Ok(socket) => {
-            debug!("accepted succesfully");
-            accept_chan.send(());
-            handle_request(&config_cpy, &socket);
-          } 
-          Err(err_data) => {
-             accept_chan.send(());
-             error!("failed to accept connection");
-          } 
-        };
+
+  use extra::net::tcp::*;
+  let addr = net::ip::v4::parse_addr(config.host);
+  let port = 6969;
+
+  let iotask = uv_global_loop::get();
+  let stack_config = (*config).clone(); 
+  do listen(addr, port, 64, &iotask,
+    |kill_ch| {
+      // pass the kill_ch to your main loop or wherever you want
+      // to be able to externally kill the server from
+    })
+    // this callback is ran when a new connection arrives
+    |new_conn, kill_ch| {
+      let (cont_po, cont_ch) = comm::stream::<Option<TcpErrData>>();
+
+      let config_cpy = stack_config.clone();
+      do task::spawn {
+          let accept_result = accept(new_conn);
+          match accept_result {
+              Err(accept_error) => {
+                  cont_ch.send(Some(accept_error));
+              },
+              Ok(sock) => {
+                 cont_ch.send(None);
+                 handle_request(&config_cpy, &sock);
+              }
+          }
       };
-      // wait for socket to be accepted
-      accept_port.recv();
-    });
-    }                  
-    do task::spawn || {
-      debug!("some other random task");
-    }
+      match cont_po.recv() {
+        // shut down listen()
+        Some(err_data) => kill_ch.send(Some(err_data)),
+        // wait for next connection
+        None => ()
+      }
+    };
+
 }
 
 fn handle_request(conf : &Config, socket : &net::tcp::TcpSocket) {
-  debug!("in handle request func");
-  let mut response = str::to_bytes("404 not found");
+  println("in handle request func");
+  let mut response = ("404 not found").to_bytes(false);
   match socket.read(0u) {
     Ok(req_bytes) => {
       let req_text = str::from_bytes(req_bytes);
-      debug!("received req");
       //io::println(req_text);
       match get_request_content(req_text) {
         Ok(req) => {
-          response = str::to_bytes("your req was correct");
-          match get_static_file(copy conf.files_root, req.file_name)  {
-            Ok(content) => {response = content;}
-            Err(err_data) => { debug!("could not read file");}
+          match get_static_file(conf.files_root, req.file_name)  {
+            Ok(content) => {
+              let header = ~"HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n";
+              response = vec::append(header.to_bytes(false), content);
+            }
+            Err(err_data) => { println("could not read file");}
           }
         }
         Err(err_data) => {
-          debug!("request does not have the correct format");
+          println("request does not have the correct format");
          }
-//          response = str::to_bytes("your req was correct");
         }
     }
     Err(crap) => {
@@ -72,22 +77,19 @@ struct Request {
   file_name: ~str
 }
 
-fn get_static_file(root_str : ~str, file_name : &str)
+pub fn get_static_file(root_str : &str, file_name : &str)
                   -> Result<~[u8], ~str> {
-  debug!("getting a static file");
-  io::println(file_name);
-  let root_str2 = copy root_str;
-  debug!("got root str");
-  let path_str = str::append(root_str, file_name);
-  debug!("got path string");
-  let full_path = //path::Path(~"wtf");
+
+  println("getting a static file");
+  println(file_name);
+  let path_str = root_str.to_owned().append(file_name);
+  let full_path = 
    path::Path(path_str);
-//  path::Path(str::append(~"wtf", ~"loLawgawg"));
   io::println(full_path.to_str());
-  debug!("computed full path");
+  println("computed full path");
 
   if (is_valid_path(file_name)) {
-    debug!("valid path");
+    println("valid path");
 
     match io::read_whole_file
             (~full_path)  {
@@ -97,27 +99,18 @@ fn get_static_file(root_str : ~str, file_name : &str)
   } else { Err(~"wrong file")}
 }
 
-/* checks if it contains sneaky tricks */
 fn is_valid_path(path : &str) -> bool {
-  !contains(path, ~"..")
+  match path.find_str("..") {
+    Some(x) => false,
+    None => true
+  }
 }
 
-fn get_request_content(req_text : &str) -> Result<~Request, ~str>   {
-  let words = str::words(req_text);
-  if (vec::len(words) >= 2 && to_lower(words[0]) == ~"get") {
-    debug!("RUST MY ASS ");
-    Ok(~Request{file_name:copy words[1]})
+
+pub fn get_request_content(req_text : &str) -> Result<~Request, ~str>   {
+  let words : ~[&str] = req_text.word_iter().collect();
+  if (words.len() >= 2 && words[0] == "GET") {
+    Ok(~Request{file_name: words[1].to_owned()})
   } else { Err(~"wrong request format") } 
-}
-
-fn on_establish_cb(chan : oldcomm::Chan<Option<net_tcp::TcpErrData>>) {
-  debug!("etsablished listener");
-  do task::spawn {
-    debug!("spawned task in establishment");
-  };
-}
-
-fn new_connect_cb(newConn : net_tcp::TcpNewConnection,
-              kill_chan : oldcomm::Chan<Option<net_tcp::TcpErrData>>) {
 }
 

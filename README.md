@@ -1,9 +1,8 @@
-tiny web server for serving static files. build with rust 0.5
+tiny http server for serving static files. build with rust 0.8.
 
-To build everything run 
+purpose: learn rust and more about http servers.
+
+To build everything run:
   make
-To run the main 
+To run the main example executable run:
   make run
-lil_server
-
-n/a
